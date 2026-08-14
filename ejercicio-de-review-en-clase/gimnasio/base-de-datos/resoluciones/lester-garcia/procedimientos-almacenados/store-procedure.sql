@@ -155,3 +155,101 @@ DELIMITER //
  
  CALL sp_buscar_entrenador_especialidad(301, @resultado_busqueda);
  SELECT @resutado_busqueda;
+
+
+ -- MANEJO DE ERRORES EN PROCEDIMIENTOS ALMACENADOS
+-- 1. HANDLER PARA CLAVE PRIMARIA DUPLICADA (1062 SQLEXCEPTION)
+
+DELIMITER //
+CREATE PROCEDURE sp_insertar_socio_seguro (
+IN p_socio_id VARCHAR(10),
+IN p_nombre VARCHAR(50),
+IN p_apellido VARCHAR (50),
+IN p_telefono INT,
+OUT p_codigo_respuesta INT,
+OUT p_mensaje VARCHAR(100)
+)
+BEGIN
+    -- DECLARAR EL HANDLER PARA CAPTURAR CUALQUIER EXCEPCION
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+    -- SI OCURRE UN ERROR ABORTA Y DEVUELVE ESTE BLOQUE
+    SET p_codigo_respuesta = 500;
+    SET p_mensaje = 'Error: El ID del socio ya existe o hubo un fallo de insercion.';
+    END;
+    
+    -- intento de insercion
+    
+    INSERT INTO socios (socio_id, nombre, apellido, telefono)
+    VALUES (p_socio_id, p_nombre, p_apellido, p_telefono);
+	
+    -- si la insercion es exitosa
+    SET p_codigo_respuesta = 200 ;
+    SET p_mensaje = 'socio registrado exitosamente';
+END //
+DELIMITER ;
+
+-- Intento 1: Socio nuevo (Exitoso)
+CALL sp_insertar_socio_seguro('104', 'Mariana', 'Lopez', 55551111, @codigo, @msg);
+SELECT @codigo, @msg;
+
+
+-- Intento 2: Usar ID '101' que ya existe (Capturado por el Handler)
+CALL sp_insertar_socio_seguro('101', 'Duplicado', 'Test', 55552222, @codigo, @msg);
+SELECT @codigo, @msg;
+
+-- 2. ASIGNAR UN plan a un socio en socio_plan_entrenamiento. SI PASAS  un entrenador_id 
+-- o sede_id inexistente, se captura el error y se inspecciona el mensaje del motor con GET DIAGNOSTICS.
+ 
+drop procedure if exists  sp_asignar_plan_avanzado;
+DELIMITER // 
+
+CREATE PROCEDURE sp_asignar_plan_avanzado (
+IN p_id VARCHAR(10),
+IN p_socio_id VARCHAR(10),
+IN p_plan_entrenamiento_id VARCHAR(10),
+IN p_entrenador_id VARCHAR(10),
+IN p_sede_id VARCHAR(10),
+OUT p_estado VARCHAR(200)
+)
+BEGIN
+DECLARE db_err_code INT;
+DECLARE db_err_msg VARCHAR(255);
+
+DECLARE EXIT HANDLER FOR SQLEXCEPTION
+ 
+  BEGIN
+   GET DIAGNOSTICS CONDITION 1
+      db_err_code = MYSQL_ERRNO,
+      db_err_msg = MESSAGE_TEXT;
+      
+      SET p_estado = CONCAT('ERROR [', db_err_code, ']: ', db_err_msg);
+  END;
+   SET p_estado = 'OK: REGISTRO CREADO CORRECTAMENTE.';
+   
+   INSERT INTO socio_plan_entrenamiento(
+   socio_paln_entrenamiento_id,
+   socio_id,
+   plan_entrenamiento_id,
+   entrenador_id,
+   sede_id
+   )
+   VALUES ( p_id, p_socio_id, p_plan_entrenamiento_id, p_entrenador_id, p_sede_id);
+   
+   END //
+  
+DELIMITER ;
+
+
+-- Declarar la variable para recibir el resultado
+CALL sp_asignar_plan_avanzado(
+    '1010',      -- ID del registro (socio_paln_entrenamiento_id)
+    '101',       -- socio_id (Existe)
+    '6301',      -- plan_entrenamiento_id (Existe)
+    '301',       -- entrenador_id (Existe)
+    '501',       -- sede_id (Existe)
+    @resultado
+);
+
+-- Consultar la variable de salida
+SELECT @resultado;
